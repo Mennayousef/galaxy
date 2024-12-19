@@ -13,6 +13,7 @@ import { computed, ref, watch } from "vue";
 import draggable from "vuedraggable";
 
 import type { HDASummary, HistoryItemSummary } from "@/api";
+import { useConfirmDialog } from "@/composables/confirmDialog";
 import { Toast } from "@/composables/toast";
 import STATES from "@/mvc/dataset/states";
 import { useDatatypesMapperStore } from "@/stores/datatypesMapperStore";
@@ -81,6 +82,7 @@ const invalidElements = ref<string[]>([]);
 const generatedPairs = ref<DatasetPair[]>([]);
 const selectedForwardElement = ref<HDASummary | null>(null);
 const selectedReverseElement = ref<HDASummary | null>(null);
+const atLeastOnePair = ref(true);
 
 // Filters
 const forwardFilter = ref(COMMON_FILTERS[DEFAULT_FILTER][0] || "");
@@ -90,6 +92,14 @@ const hasFilter = computed(() => forwardFilter.value || reverseFilter.value);
 // Autopairing
 const strategy = ref(autoPairLCS);
 const duplicatePairNames = ref<string[]>([]);
+
+const canClearFilters = computed(() => {
+    return forwardFilter.value || reverseFilter.value;
+});
+
+const canAutoPair = computed(() => {
+    return forwardFilter.value && reverseFilter.value && pairableElements.value.length > 0;
+});
 
 const forwardElements = computed<HDASummary[]>(() => {
     return filterElements(workingElements.value, forwardFilter.value);
@@ -115,7 +125,11 @@ const autoPairButton = computed(() => {
     let variant;
     let icon;
     let text;
-    if (!firstAutoPairDone.value && pairableElements.value.length > 0) {
+    if (!canAutoPair.value) {
+        variant = "secondary";
+        icon = faLink;
+        text = localize("Specify simple filters to divide datasets into forward and reverse reads for pairing.");
+    } else if (!firstAutoPairDone.value && pairableElements.value.length > 0) {
         variant = "primary";
         icon = faExclamationCircle;
         text = localize("Click to auto-pair datasets based on the current filters");
@@ -233,8 +247,11 @@ function initialFiltersSet() {
             illumina++;
         }
     });
-
-    if (illumina > dot12s && illumina > Rs) {
+    // if we cannot filter don't set an initial filter and hide all the data
+    if (illumina == 0 && dot12s == 0 && Rs == 0) {
+        forwardFilter.value = "";
+        reverseFilter.value = "";
+    } else if (illumina > dot12s && illumina > Rs) {
         changeFilters("illumina");
     } else if (dot12s > illumina && dot12s > Rs) {
         changeFilters("dot12s");
@@ -552,32 +569,6 @@ function _addToUnpaired(dataset: HDASummary) {
 
     workingElements.value.splice(binSearchSortedIndex(0, workingElements.value.length), 0, dataset);
 }
-// /** add a dataset to the unpaired list in it's proper order */
-// _addToUnpaired: function (dataset) {
-//     // currently, unpaired is natural sorted by name, use binary search to find insertion point
-//     var binSearchSortedIndex = (low, hi) => {
-//         if (low === hi) {
-//             return low;
-//         }
-
-//         var mid = Math.floor((hi - low) / 2) + low;
-
-//         var compared = naturalSort(dataset.name, this.workingElements[mid].name);
-
-//         if (compared < 0) {
-//             return binSearchSortedIndex(low, mid);
-//         } else if (compared > 0) {
-//             return binSearchSortedIndex(mid + 1, hi);
-//         }
-//         // walk the equal to find the last
-//         while (this.workingElements[mid] && this.workingElements[mid].name === dataset.name) {
-//             mid++;
-//         }
-//         return mid;
-//     };
-
-//     this.workingElements.splice(binSearchSortedIndex(0, this.workingElements.length), 0, dataset);
-// },
 
 /**
  * Unpair a pair, removing it from paired, and adding the fwd,rev
@@ -749,9 +740,22 @@ function addUploadedFiles(files: HDASummary[]) {
     });
 }
 
+const { confirm } = useConfirmDialog();
+
 async function clickedCreate(collectionName: string) {
     checkForDuplicates();
-    if (state.value == "build") {
+    atLeastOnePair.value = generatedPairs.value.length > 0;
+
+    let confirmed = false;
+    if (!atLeastOnePair.value) {
+        confirmed = await confirm("Are you sure you want to create a list with no pairs?", {
+            title: "Create an empty list of pairs",
+            okTitle: "Create",
+            okVariant: "primary",
+        });
+    }
+
+    if (state.value == "build" && (atLeastOnePair.value || confirmed)) {
         emit("clicked-create", generatedPairs.value, collectionName, hideSourceItems.value);
     }
 }
@@ -827,6 +831,19 @@ function _naiveStartingAndEndingLCS(s1: string, s2: string) {
                     </ul>
                 </BAlert>
             </div>
+
+            <div v-if="!atLeastOnePair">
+                <BAlert show variant="warning" dismissible @dismissed="atLeastOnePair = true">
+                    {{ localize("At least one pair is needed for the list of pairs.") }}
+                    <span v-if="fromSelection">
+                        <a class="cancel-text" href="javascript:void(0)" role="button" @click="emit('on-cancel')">
+                            {{ localize("Cancel") }}
+                        </a>
+                        {{ localize("and reselect new elements.") }}
+                    </span>
+                </BAlert>
+            </div>
+
             <div v-if="!autoPairsPossible">
                 <BAlert show variant="danger" dismissible @dismissed="autoPairsPossible = true">
                     {{
@@ -842,6 +859,7 @@ function _naiveStartingAndEndingLCS(s1: string, s2: string) {
                     </span>
                 </BAlert>
             </div>
+
             <div v-if="state == 'duplicates'">
                 <BAlert show variant="danger">
                     {{
@@ -853,6 +871,7 @@ function _naiveStartingAndEndingLCS(s1: string, s2: string) {
                     {{ localize("Please fix these duplicates and try again.") }}
                 </BAlert>
             </div>
+
             <CollectionCreator
                 :oncancel="() => emit('on-cancel')"
                 :history-id="props.historyId"
@@ -860,6 +879,7 @@ function _naiveStartingAndEndingLCS(s1: string, s2: string) {
                 render-extensions-toggle
                 :extensions-toggle="removeExtensions"
                 :extensions="extensions"
+                collection-type="list:paired"
                 :no-items="props.initialElements.length == 0 && !props.fromSelection"
                 @add-uploaded-files="addUploadedFiles"
                 @onUpdateHideSourceItems="hideSourceItems = $event"
@@ -871,9 +891,10 @@ function _naiveStartingAndEndingLCS(s1: string, s2: string) {
                         {{
                             localize(
                                 [
-                                    "Collections of paired datasets are ordered lists of dataset pairs (often forward and reverse reads). ",
-                                    "These collections can be passed to tools and workflows in order to have analyses done on each member of ",
-                                    "the entire group. This interface allows you to create a collection, choose which datasets are paired, ",
+                                    "This interface allows you to build a new Galaxy list of pairs. List of pairs are an ordered list of ",
+                                    "individual dataset paired together in their own paired collection (often forward and reverse reads). ",
+                                    "These lists can be passed to tools and workflows in order to have analyses done on each member of ",
+                                    "the entire group. This interface allows you to create such a list of paired datasets, choose which datasets are paired, ",
                                     "and re-order the final collection.",
                                 ].join("")
                             )
@@ -990,7 +1011,7 @@ function _naiveStartingAndEndingLCS(s1: string, s2: string) {
                         </i>
                         {{ localize("and click ") }}
                         <i data-target=".create-collection">
-                            {{ localize("Create list") }}
+                            {{ localize("Create list or pairs") }}
                         </i>
                         {{ localize(". (Note: you do not have to pair all unpaired datasets to finish.)") }}
                     </p>
@@ -1129,6 +1150,7 @@ function _naiveStartingAndEndingLCS(s1: string, s2: string) {
                                         <BButtonGroup vertical>
                                             <BButton
                                                 class="clear-filters-link"
+                                                :disabled="!canClearFilters"
                                                 size="sm"
                                                 :variant="hasFilter ? 'danger' : 'secondary'"
                                                 @click="clickClearFilters">
@@ -1137,6 +1159,7 @@ function _naiveStartingAndEndingLCS(s1: string, s2: string) {
                                             </BButton>
                                             <BButton
                                                 class="autopair-link"
+                                                :disabled="!canAutoPair"
                                                 size="sm"
                                                 :title="autoPairButton.text"
                                                 :variant="autoPairButton.variant"
@@ -1305,6 +1328,8 @@ $fa-font-path: "../../../node_modules/@fortawesome/fontawesome-free/webfonts/";
 @import "~@fortawesome/fontawesome-free/scss/solid";
 @import "~@fortawesome/fontawesome-free/scss/fontawesome";
 @import "~@fortawesome/fontawesome-free/scss/brands";
+@import "~bootstrap/scss/_functions.scss";
+@import "theme/blue.scss";
 .paired-column {
     text-align: center;
     // mess with these two to make center more/scss priority
@@ -1351,7 +1376,7 @@ li.dataset.paired {
             white-space: nowrap;
             overflow: hidden;
             border: 2px solid grey;
-            background: #aff1af;
+            background: $state-success-bg;
             text-align: center;
             span {
                 display: inline-block;

@@ -233,7 +233,7 @@ PopulatedField = Annotated[
     ),
 ]
 
-ElementsField = Field(
+ElementsField: List["DCESummary"] = Field(
     [],
     title="Elements",
     description="The summary information of each of the elements inside the dataset collection.",
@@ -2165,6 +2165,7 @@ class JobMetric(Model):
 
 class WorkflowJobMetric(JobMetric):
     tool_id: str
+    job_id: str
     step_index: int
     step_label: Optional[str]
 

@@ -136,10 +136,10 @@ FILE_MD5 = "37b59762b59fff860460522d271bc111"
 CWL_TOOL_DIRECTORY = os.path.join(galaxy_root_path, "test", "functional", "tools", "cwl_tools")
 
 # Simple workflow that takes an input and call cat wrapper on it.
-workflow_str = resource_string(__package__, "data/test_workflow_1.ga")
+workflow_str = resource_string(__name__, "data/test_workflow_1.ga")
 # Simple workflow that takes an input and filters with random lines twice in a
 # row - first grabbing 8 lines at random and then 6.
-workflow_random_x2_str = resource_string(__package__, "data/test_workflow_2.ga")
+workflow_random_x2_str = resource_string(__name__, "data/test_workflow_2.ga")
 
 DEFAULT_TIMEOUT = 60  # Secs to wait for state to turn ok
 
@@ -1821,7 +1821,7 @@ class BaseWorkflowPopulator(BasePopulator):
     def load_workflow_from_resource(self, name: str, filename: Optional[str] = None) -> dict:
         if filename is None:
             filename = f"data/{name}.ga"
-        content = resource_string(__package__, filename)
+        content = resource_string(__name__, filename)
         return self.load_workflow(name, content=content)
 
     def simple_workflow(self, name: str, **create_kwds) -> str:
@@ -1911,6 +1911,8 @@ class BaseWorkflowPopulator(BasePopulator):
                 invocations = self.history_invocations(history_id)
                 if len(invocations) == expected_invocation_count:
                     return True
+                elif len(invocations) > expected_invocation_count:
+                    raise AssertionError("More than the expect number of invocations found in workflow")
 
             wait_on(invocation_count, f"{expected_invocation_count} history invocations")
         for invocation in self.history_invocations(history_id):
