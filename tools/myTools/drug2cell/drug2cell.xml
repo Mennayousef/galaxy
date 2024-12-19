@@ -1,0 +1,101 @@
+<tool id="drug2cell" name="drug2cell" version="0.1.0+galaxy0" python_template_version="3.5" profile="21.05">
+    
+    <description>Collection of utility functions for gene group activity evaluation in scanpy</description>
+    <macros>
+        <token name="@TOOL_VERSION@">0.1.0</token>
+        <token name="@VERSION_SUFFIX@">0</token>
+    </macros>
+    <requirements>
+        <requirement type="package" version="1.0">drug2cell</requirement>
+        <requirement type="package" version="1.0">scanpy</requirement>
+        <requirement type="package" version="1.0">blitzgsea</requirement>
+    </requirements>
+    <command>
+        <![CDATA[
+        # Link the input AnnData object
+        ln -s "${adata}" "adata.h5ad"
+
+        # Python script to execute drug2cell scoring and differential expression
+        python3 <<CODE
+        import scanpy as sc
+        import drug2cell as d2c
+        import blitzgsea as blitz
+
+        # Load AnnData object
+        adata = sc.read("adata.h5ad")
+
+        # Perform scoring with raw data or normalized data
+        use_raw = "${use_raw}" == "true"
+        d2c.score(adata, use_raw=use_raw)
+
+        # Visualize the specified drug (UMAP)
+        sc.pl.umap(adata.uns['drug2cell'], color="${drug}", color_map="OrRd", save="umap_plot.png")
+
+        # Perform differential expression analysis (Wilcoxon)
+        sc.tl.rank_genes_groups(adata.uns['drug2cell'], method="wilcoxon", groupby="louvain")
+        sc.pl.rank_genes_groups_dotplot(adata.uns['drug2cell'], swap_axes=True, dendrogram=False, n_genes=${n_genes}, save="dotplot.png")
+
+        # Prepare arguments for dotplot visualization
+        plot_args = d2c.util.prepare_plot_args(adata.uns['drug2cell'], categories="${categories}".split(","))
+        sc.pl.dotplot(adata.uns['drug2cell'], groupby="louvain", swap_axes=True, **plot_args, save="dotplot.png")
+
+        # Save ranked genes to output file
+        adata.uns['drug2cell'].rank_genes_groups.to_csv("rank_genes.tsv", sep="\t")
+        CODE
+                ]]>
+    </command>
+    <inputs>
+        <!-- Input: AnnData object (processed scRNA-seq data) -->
+        <param name="adata" type="data" format="h5ad" label="AnnData Object" help="Select the processed AnnData object file containing your single-cell RNA-seq data" />
+
+        <!-- Option to select number of genes to visualize in the dotplot -->
+        <param name="n_genes" type="integer" value="5" label="Number of Genes for Dotplot" 
+        min="1" max="20" help="Specify the number of genes to display in the dotplot (range: 1 to 20)." />
+
+        <!-- Option for visualizing a specific drug from ChEMBL -->
+        <param name="drug_id" type="text" value="CHEMBL1743048" label="Drug (CHEMBL ID)" help="Enter the ChEMBL ID of the drug to visualize." />
+
+        <!-- Option to perform differential expression analysis -->
+        <param name="perform_de" type="boolean" value="true" label="Perform Differential Expression" help="Enable to perform differential expression analysis for drug targets." />
+
+        <!-- Option to visualize drugs from ChEMBL -->
+        <param name="visualize_drugs" type="boolean" value="true" label="Visualize Drugs" help="Enable to visualize drug-target activities on UMAP." />
+        
+        <!-- Option to visualize dotplot -->
+        <param name="dotplot" type="boolean" value="true" label="Generate Dotplot" help="Enable to generate a dotplot of drug activity." />
+    </inputs>
+    <outputs>
+        <!-- Output: Plots and results from differential expression -->
+        <data name="umap_plot" format="png" label="UMAP Plot" />
+        <data name="dotplot_image" format="png" label="Dotplot of Gene Groups" />
+        <data name="rank_genes" format="tsv" label="Ranked Genes for Differential Expression" />
+    </outputs>
+    <tests>
+        <test expect_num_outputs="3">
+            <param name="adata" value="pbmc3k_processed.h5ad" ftype="h5ad"/>
+            <param name="n_genes" value="5"/>
+            <output name="umap_plot" file="umap_plot.png"/>
+            <output name="dotplot_image" file="dotplot.png"/>
+            <output name="rank_genes" file="rank_genes.tsv"/>
+        </test>
+    </tests>
+    <help>
+        <![CDATA[
+        This tool uses the drug2cell package to score gene groups based on drug-target data from the ChEMBL database. 
+        It performs differential expression analysis to identify gene groups up-regulated in particular clusters and visualizes the results in UMAP and dotplot formats.
+        ]]>
+    </help>
+    <citations>
+        <citation type="bibtex">@article{kanemaru2023spatially,
+        title={Spatially resolved multiomics of human cardiac niches},
+        author={Kanemaru, Kazumasa and Cranley, James and Muraro, Daniele and Miranda, Antonio MA and Ho, Siew Yen and Wilbrey-Clark, Anna and Patrick Pett, Jan and Polanski, Krzysztof and Richardson, Laura and Litvinukova, Monika and others},
+        journal={Nature},
+        volume={619},
+        number={7971},
+        pages={801--810},
+        year={2023},
+        publisher={Nature Publishing Group UK London}
+        }</citation>
+    </citations>  
+</tool>
+
